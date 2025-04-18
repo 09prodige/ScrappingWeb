@@ -10,6 +10,7 @@ import threading
 import requests
 import time
 import re
+from bs4 import BeautifulSoup
 
 def configure_driver():
     options = Options()
@@ -51,12 +52,13 @@ class MailServerScraper:
         return any(re.search(pat, text.lower()) for pat in patterns)
 
     def categorize_server(self, servers):
-        if any(self.is_microsoft_server(s) for s in servers):
-            return "OUI"
-        elif any(s.lower().startswith("mx.") for s in servers):
-            return "NON"
-        else:
-            return "NON DÉFINI"
+        for s in servers:
+            s = s.lower()
+            if self.is_microsoft_server(s):
+                return "OUI"
+            elif re.match(r"^mx\\d*\\.", s):
+                return "NON"
+        return "NON DÉFINI"
 
     def search_and_extract(self, driver, domain, log):
         if self.stop_requested:
@@ -65,8 +67,8 @@ class MailServerScraper:
         while self.pause_requested:
             time.sleep(0.2)
 
-        if domain.strip().lower() == "aucun site":
-            return "aucun site", []
+        if domain.strip().lower() == "aucun site" or domain.strip() == "":
+            return "aucun", []
 
         check_internet_connection(log)
 
@@ -86,13 +88,21 @@ class MailServerScraper:
                 try:
                     label = row.find_element(By.XPATH, ".//td[1]/strong").text.strip()
                     if "Serveur(s) mail" in label:
-                        data = row.find_element(By.XPATH, ".//td[2]").text.strip()
-                        mail_servers = [s.strip() for s in re.split(r"[\\n,;]+", data)]
+                        td_element = row.find_element(By.XPATH, ".//td[2]")
+                        inner_html = td_element.get_attribute("innerHTML")
+                        soup = BeautifulSoup(inner_html, "html.parser")
+                        lines = [line.strip() for line in soup.stripped_strings]
+
+                        mail_servers = [
+                            re.sub(r"\\(.*\\)", "", l).strip('" ').strip()
+                            for l in lines if l
+                        ]
                         break
-                except:
+                except Exception as e:
+                    log(f"Erreur lecture ligne serveur mail : {e}")
                     continue
 
-            category = self.categorize_server(mail_servers) if mail_servers else "NON"
+            category = self.categorize_server(mail_servers) if mail_servers else "aucun"
             log(f"{domain} → {category} → {mail_servers}")
             return category, mail_servers
 
@@ -131,7 +141,7 @@ class ScraperApp:
         self.log_area.grid(row=5, column=0, columnspan=2, pady=5)
 
     def log(self, msg):
-        self.log_area.insert(tk.END, msg + "\\n")
+        self.log_area.insert(tk.END, msg + "\n")
         self.log_area.see(tk.END)
 
     def update_progress(self, current):

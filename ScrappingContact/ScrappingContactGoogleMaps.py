@@ -81,7 +81,7 @@ class Scraper:
             self.accept_cookies(driver, log)
             log(f"Ouverture de Google Maps pour : {query}")
 
-            search_box = WebDriverWait(driver, 20).until(
+            search_box = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, "searchboxinput"))
             )
             search_box.clear()
